@@ -9,7 +9,7 @@ export default defineConfig({
 	plugins: [
 		tailwindcss(),
 		sveltekit({
-			preprocess: [vitePreprocess(), preprocessMeltUI()],
+			preprocess: [vitePreprocess(), preprocessMeltUI({ svelteConfigPath: false })],
 			compilerOptions: {
 				// Force runes mode for the project, except for libraries. Can be removed in svelte 6.
 				runes: ({ filename }) =>
