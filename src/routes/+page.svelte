@@ -94,6 +94,12 @@
 				<DropdownMenu.Content align="end">
 					<DropdownMenu.Item>
 						{#snippet child({ props })}
+							<a {...props} href={resolve('/account')}>Account settings</a>
+						{/snippet}
+					</DropdownMenu.Item>
+					<DropdownMenu.Separator />
+					<DropdownMenu.Item>
+						{#snippet child({ props })}
 							<a {...props} href={resolve('/api/export')}>Export JSON</a>
 						{/snippet}
 					</DropdownMenu.Item>
