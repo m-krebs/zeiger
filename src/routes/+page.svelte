@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import { resolve } from '$app/paths';
@@ -11,6 +12,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Badge } from '$lib/components/ui/badge';
 	import * as Avatar from '$lib/components/ui/avatar';
+	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import * as Card from '$lib/components/ui/card';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import type { ActionData, PageData } from './$types';
@@ -20,6 +22,11 @@
 	let importForm = $state<HTMLFormElement | null>(null);
 	let fileInput = $state<HTMLInputElement | null>(null);
 	let signOutForm = $state<HTMLFormElement | null>(null);
+
+	// the first submit only probes for duplicates; the answer is sent with a second one
+	let duplicateStrategy = $state<'keep' | 'overwrite' | ''>('');
+	let duplicateCount = $state(0);
+	let duplicatePromptOpen = $state(false);
 
 	let selectedFolder = $state<string | null>(null);
 	let selectedTags = $state<string[]>([]);
@@ -36,6 +43,17 @@
 		data.links.filter((l) => l.folderId === folderId).length;
 	const initials = $derived((data.user?.name ?? '?').slice(0, 2).toUpperCase());
 
+	async function submitImport(strategy: 'keep' | 'overwrite' | '') {
+		duplicateStrategy = strategy;
+		await tick(); // let the hidden strategy input update before the form is serialized
+		importForm?.requestSubmit();
+	}
+
+	function cancelImport() {
+		duplicateStrategy = '';
+		if (fileInput) fileInput.value = '';
+	}
+
 	function toggleTag(tag: string) {
 		selectedTags = selectedTags.includes(tag)
 			? selectedTags.filter((t) => t !== tag)
@@ -44,7 +62,11 @@
 
 	$effect(() => {
 		if (form?.action === 'import' && form.success) {
-			toast.success(`Imported ${form.imported} links (${form.skipped} skipped)`);
+			const parts = [`Imported ${form.imported} links`];
+			if (form.updated) parts.push(`${form.updated} replaced`);
+			if (form.kept) parts.push(`${form.kept} kept`);
+			if (form.skipped) parts.push(`${form.skipped} skipped`);
+			toast.success(parts.join(', '));
 		}
 	});
 
@@ -112,17 +134,56 @@
 		action="?/import"
 		enctype="multipart/form-data"
 		class="hidden"
-		use:enhance
 		bind:this={importForm}
+		use:enhance={() =>
+			async ({ result, update }) => {
+				if (result.type === 'success' && result.data?.needsChoice) {
+					// hold on to the picked file: the dialog answer resubmits this same form
+					duplicateCount = result.data.duplicates as number;
+					duplicatePromptOpen = true;
+					return;
+				}
+				duplicateStrategy = '';
+				if (fileInput) fileInput.value = '';
+				await update();
+			}}
 	>
 		<input
 			type="file"
 			name="file"
 			accept="application/json,.json"
 			bind:this={fileInput}
-			onchange={() => importForm?.requestSubmit()}
+			onchange={() => submitImport('')}
 		/>
+		<input type="hidden" name="duplicates" value={duplicateStrategy} />
 	</form>
+
+	<AlertDialog.Root bind:open={duplicatePromptOpen}>
+		<AlertDialog.Content>
+			<AlertDialog.Header>
+				<AlertDialog.Title>
+					{duplicateCount}
+					{duplicateCount === 1 ? 'link is' : 'links are'} already in your collection
+				</AlertDialog.Title>
+				<AlertDialog.Description>
+					Some links in the file point at a URL you already saved. Keep what you have, or replace it
+					with the imported version? The remaining links are imported either way.
+				</AlertDialog.Description>
+			</AlertDialog.Header>
+			<AlertDialog.Footer>
+				<AlertDialog.Cancel onclick={cancelImport}>Cancel</AlertDialog.Cancel>
+				<AlertDialog.Action
+					class={buttonVariants({ variant: 'outline' })}
+					onclick={() => submitImport('keep')}
+				>
+					Keep existing
+				</AlertDialog.Action>
+				<AlertDialog.Action onclick={() => submitImport('overwrite')}>
+					Replace with imported
+				</AlertDialog.Action>
+			</AlertDialog.Footer>
+		</AlertDialog.Content>
+	</AlertDialog.Root>
 	<form method="post" action="?/signOut" class="hidden" use:enhance bind:this={signOutForm}></form>
 
 	{#if form?.message}
